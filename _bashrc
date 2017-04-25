@@ -60,104 +60,146 @@ function cpcol(){
 ### git branch functions
 # check https://github.com/magicmonty/bash-git-prompt
 # http://stackoverflow.com/questions/2657935/checking-for-a-dirty-index-or-untracked-files-with-git
-function parse_git_branch() {
-     gbranch_state=`git branch 2> /dev/null | grep "*" | sed -e 's/^*//'`
-     git rev-parse 2> /dev/null
-     if [[ $? == 0 ]]; then
-        local gbranchstr=${gbranch_state}
-        
-        ############################################
-        ### now parse git dirty state
-        gstr=$(git status 2> /dev/null | tail -n1 | sed 's/,//' | awk '{print $1, $2, $3}')
-        if [[ ${gstr} == "nothing to commit" ]]
-              then
-              dirty_state=""            
-        elif [[ ${gstr} == "" ]]
-              then
-              dirty_state=""
-        else
-              dirty_state='\[\033[01;38;5;221m\]*'
-        fi        
-        
-        ###
-        ##################################################################
-        
-        ### untracked files present?
-        if [[ ${dirty_state} == "\[\033[01;38;5;221m\]*" ]]
-              then         
-	      
-	      ### Check how far git branch is relative to origin
-              gbranchrel=`git status 2> /dev/null | grep "Your branch is"`
-              gup=`echo $gbranchrel 2> /dev/null | grep ahead`
-              gdown=`echo $gbranchrel 2> /dev/null | grep behind`
-              grelN=`echo $gbranchrel | sed -nr 's/.*by ([0-9]+) commit?[a-z]./\1/p'`
-              
-              gupdown=""
-              if [[ $gup != "" ]]; then              
-                    gupdown=" ${SLATE}^${grelN}"
-              fi
-              
-              if [[ $gdown != "" ]]; then              
-                    gupdown=" ${SLATE}v${grelN}"
-              fi
-              ##########################################                    
-              gporcelain=`git status --porcelain`                  
-              untrN=`echo $gporcelain | tr ' ' '\n' | grep -w '??' | wc -l` # untracked
-              addN=`echo $gporcelain | tr ' ' '\n' | grep -w '^A' | wc -l`  # added            
-              modN=`echo $gporcelain | tr ' ' '\n' | grep -w '^M' | wc -l`  # modified                          
-              commN=`echo $gporcelain | tr ' ' '\n' | grep -w '^AM' | wc -l`  # added & modified?                 
-              delN=`echo $gporcelain | tr ' ' '\n' | grep -w '^D' | wc -l`  # deleted                
+# https://github.com/jimeh/git-aware-prompt/blob/master/prompt.sh
 
-              #gitstats=" ${TEAL}u${LBLUE}a${MAGENTA}m${HIGreen}c${RED}d${SLATE}: ${TEAL}${untrN}${SLATE}/${LBLUE}${addN}${SLATE}/${MAGENTA}${modN}${SLATE}/${HIGreen}${commN}${SLATE}/${RED}${delN}" 
-              ### Build up legend & git stats depending on what is appropriate
-              
-              gitlegend=" "
-              gitstats2=""
-              if [[ $untrN != "0" ]]; then
-                    gitlegend="${gitlegend}${TEAL}u"
-                    gitstats2="${gitstats2}${TEAL}${untrN}"                
-              fi
-              
-              if [[ $addN != "0" ]]; then
-                    gitlegend="${gitlegend}${LBLUE}a"
-                    gitstats2="${gitstats2}${LBLUE}${addN}"                
-              fi        
-              
-              if [[ $modN != "0" ]]; then
-                    gitlegend="${gitlegend}${MAGENTA}m"
-                    gitstats2="${gitstats2}${MAGENTA}${modN}"                
-              fi                      
 
-              if [[ $commN != "0" ]]; then
-                    gitlegend="${gitlegend}${HIGreen}c"
-                    gitstats2="${gitstats2}${HIGreen}${commN}"                
-              fi       
-              
-              if [[ $delN != "0" ]]; then
-                    gitlegend="${gitlegend}${RED}d"
-                    gitstats2="${gitstats2}${RED}${delN}"                
-              fi 
-                            
-              gitstats2=`echo $gitstats2 | sed "s/${gitlegend}/&{gitlegend}\//g"` # | sed 's/\/$//'`
-              gitlegend="${gitlegend}${SLATE}: "
-              
-              
-              
-	      if [[ $gitstats2 == "" ]]; then
-                    gitlegend=""
-                    gitstats2="" 
-              fi  	             
-                    	     
-        else
-              gitstats="" 
-        fi                      
-        ############################################        
-        
-        echo "${BARCOL}──${TXTCOL}[git:${gupdown}${TXTCOL}${gbranchstr}${dirty_state}${gitlegend}${gitstats2}${TXTCOL}]"
-     else
-        echo " "
-     fi
+#############################
+function find_git_branch() {
+  # Based on: http://stackoverflow.com/a/13003854/170413
+  local branch=$(git rev-parse --abbrev-ref HEAD 2> /dev/null)
+  if [[ ! -z "$branch" ]]; then
+    if [[ "$branch" == "HEAD" ]]; then
+      branch='detached'
+    fi
+    git_branch="${TXTCOL}${branch}"
+  else
+    git_branch=""
+  fi
+  echo $git_branch
 }
+
+
+#############################                
+function get_git_commid() {
+    ### add current commit hash 
+    commitid=`git rev-parse --short HEAD 2> /dev/null`                    
+    echo "${BARCOL}──${TXTCOL}[${commitid}]"
+}
+
+#############################                
+function parse_git() {
+    
+    ### first check to see if we are in a git branch
+    git_str=$(find_git_branch)    
+    if [[ ! -z "$git_str" ]]; then        
+        ### now check for git dirty state        
+        git_str="${BARCOL}──${TXTCOL}[git: $(git_com_diff) ${git_str}$(find_git_dirty)"
+        
+        ### add git stats if applicable
+        git_str="${git_str}$(find_git_stats)"  
+        
+        ### add final closing bracket
+        git_str="${git_str}${TXTCOL}]"  
+        
+        ### add short commitid string
+        git_str="${git_str}$(get_git_commid)"
+                            
+        ### Final echo that PS prompt sees 
+        echo $git_str
+    else
+        echo ""    
+    fi    
+}
+
+
+#############################
+function find_git_dirty() {
+    gdirtstr=$(git status 2> /dev/null | tail -n1 | sed 's/,//' | awk '{print $1, $2, $3}')
+    if [[ ${gdirtstr} == "nothing to commit" ]]
+          then
+          dirty_state=""            
+    elif [[ ${gdirtstr} == "" ]]
+          then
+          dirty_state=""
+    else
+          dirty_state='\[\033[01;38;5;221m\]*'
+    fi     
+    echo $dirty_state
+}
+
+#############################
+function git_com_diff() {
+    ### Check how far git branch is relative to origin
+    gbranchrel=`git status 2> /dev/null | grep "Your branch is"`
+    gup=`echo $gbranchrel 2> /dev/null | grep ahead`
+    gdown=`echo $gbranchrel 2> /dev/null | grep behind`
+    grelN=`echo $gbranchrel | sed -nr 's/.*by ([0-9]+) commit?[a-z]./\1/p'`
+  
+    ### uniode symbols at : http://panmental.de/symbols/
+    gupdown=""
+    if [[ $gup != "" ]]; then              
+          gupdown="${grelN}↑"
+    fi
+    
+    if [[ $gdown != "" ]]; then              
+          gupdown="${grelN}↓"
+    fi    
+    echo $gupdown
+}    
+
+#############################
+function find_git_stats() {                   	     
+      ##########################################                    
+      gporcelain=`git status --porcelain 2> /dev/null`                  
+      untrN=`echo $gporcelain | tr ' ' '\n' | grep -w '??' | wc -l` # untracked
+      addN=`echo $gporcelain | tr ' ' '\n' | grep -w '^A' | wc -l`  # added            
+      modN=`echo $gporcelain | tr ' ' '\n' | grep -w '^M' | wc -l`  # modified                          
+      commN=`echo $gporcelain | tr ' ' '\n' | grep -w '^AM' | wc -l`  # added & modified?                 
+      delN=`echo $gporcelain | tr ' ' '\n' | grep -w '^D' | wc -l`  # deleted                
+
+      ### Build up visible legend & git stats depending on what is appropriate
+      
+      gitlegend=""
+      gitstats_str=""
+      if [[ $untrN != "0" ]]; then
+            gitlegend="${gitlegend}${TEAL}u"
+            gitstats_str="${gitstats_str}${TEAL}${untrN}"                
+      fi
+      
+      if [[ $addN != "0" ]]; then
+            gitlegend="${gitlegend}${LBLUE}a"
+            gitstats_str="${gitstats_str}${LBLUE}${addN}"                
+      fi        
+      
+      if [[ $modN != "0" ]]; then
+            gitlegend="${gitlegend}${MAGENTA}m"
+            gitstats_str="${gitstats_str}${MAGENTA}${modN}"                
+      fi                      
+
+      if [[ $commN != "0" ]]; then
+            gitlegend="${gitlegend}${HIGreen}c"
+            gitstats_str="${gitstats_str}${HIGreen}${commN}"                
+      fi       
+      
+      if [[ $delN != "0" ]]; then
+            gitlegend="${gitlegend}${RED}d"
+            gitstats_str="${gitstats_str}${RED}${delN}"                
+      fi 
+      
+      ### add "/" charcaters between numbers - WIP
+      #gitstats_str=`echo $gitstats_str > /dev/null | sed "s/${gitlegend}/&{gitlegend}\//g"` # | sed 's/\/$//'`
+      gitlegend="${gitlegend}${SLATE}: "
+      
+      
+      ### removes the ":" between gitlegend and gitstats_str
+      if [[ $gitstats_str == "" ]]; then
+            joined_gitstats=""
+      else
+            joined_gitstats=" ${gitlegend}${gitstats_str}"      
+      fi  	             
+      echo "${gupdown}${TXTCOL}${gbranchstr}${dirty_state}${joined_gitstats}"                    	     
+}
+     
 
 ##################################
 ### last command timer
@@ -189,7 +231,7 @@ shopt -s histappend
 color_prompt=yes
 if [ "$color_prompt" = yes ]; then
 
-#PS1='${debian_chroot:+($debian_chroot)}\n\[\033[01;38;5;221m\]┌──\[\033[38;5;202m\][\u]\[\033[38;5;221m\]──\[\033[38;5;202m\][\H]\[\033[35m\]\[\033[38;5;221m\]──\[\033[38;5;202m\][speed: ${timer_show}s]\[\033[38;5;221m\]──\[\033[38;5;202m\][git:$(parse_git_branch)\[\033[01;38;5;221m\]$(parse_git_dirty)\[\033[38;5;202m\]]     \n\[\033[38;5;221m\]│\[\033[37m\] > \w\n\[\033[38;5;221m\]└──\[\033[38;5;202m\]`date +"%H:%M"`\[\033[1;38;5;221m\]──\\$\[\033[00m\] ' 
+#PS1='${debian_chroot:+($debian_chroot)}\n\[\033[01;38;5;221m\]┌──\[\033[38;5;202m\][\u]\[\033[38;5;221m\]──\[\033[38;5;202m\][\H]\[\033[35m\]\[\033[38;5;221m\]──\[\033[38;5;202m\][speed: ${timer_show}s]\[\033[38;5;221m\]──\[\033[38;5;202m\][git:$(parse_git)\[\033[01;38;5;221m\]$(parse_git_dirty)\[\033[38;5;202m\]]     \n\[\033[38;5;221m\]│\[\033[37m\] > \w\n\[\033[38;5;221m\]└──\[\033[38;5;202m\]`date +"%H:%M"`\[\033[1;38;5;221m\]──\\$\[\033[00m\] ' 
 
 function prompt_command() {
         ###################################################
@@ -300,7 +342,7 @@ ${BARCOL}──\
 ${TXTCOL}[\H]\
 ${BARCOL}──\
 ${TXTCOL}[speed: ${timer_show}s]\
-$(parse_git_branch)
+$(parse_git)
 ${BARCOL}│${DKGRAY}${TTY_VAR}${WHITE}> \w \
 \n${BARCOL}└──\
 ${TXTCOL}`date +"%H:%M"`\
@@ -312,6 +354,8 @@ PROMPT_COMMAND="prompt_command; history -a; history -c; history -r"
 #
 
 else
+    #PS1='${debian_chroot:+($debian_chroot)}\n\[\033[01;35m\]┌──\[\033[33m\][\u]\[\033[35m\]──\[\033[33m\][\H]\[\033[35m\]\[\033[35m\]──\[\033[33m\][last: ${timer_show}s]\n│\[\033[37m\] '
+    #PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
     PS1="\n\[\033[1;30m\][$$:$PPID - \j:\!\[\033[1;30m\]]\[\033[0;36m\] \T \
 \[\033[1;30m\][\[\033[1;34m\]\u@\H\[\033[1;30m\]:\[\033[0;37m\]${SSH_TTY:-o} \
 \[\033[0;32m\]+${SHLVL}\[\033[1;30m\]] \[\033[1;37m\]\w\[\033[0;37m\] \n\$ "
@@ -321,11 +365,45 @@ fi
 #################################################################
 #################################################################
 #################################################################
+#if [ "$TERM" != "dumb" ]; then
+#    [ -e "$HOME/.dircolors" ] && DIR_COLORS="$HOME/.dircolors"
+#    [ -e "$DIR_COLORS" ] || DIR_COLORS=""
+#    eval "`dircolors -b $DIR_COLORS`"
+#fi
+#####
 
+alias arc1='ssh -Y -C -c blowfish-cbc,arcfour bsgt@arc1.leeds.ac.uk'
+alias pola='ssh -Y -C -c blowfish-cbc,arcfour bsgt@polaris.leeds.ac.uk'
+alias arc2='ssh -Y -C -c blowfish-cbc,arcfour bsgt@arc2.leeds.ac.uk'
+alias backup='ssh -Y -C -c blowfish-cbc,arcfour backup@fbsdpcu022'
+alias 008='ssh -Y -C -c blowfish-cbc,arcfour bsgt@fbsdpcu008'
+alias 174='ssh -Y -C -c blowfish-cbc,arcfour bsgt@fbscpcu174'
+#alias cth='ssh -Y -C -c blowfish-cbc,arcfour bsgt@phy-lin1034'
+alias cth='ssh -Y -C -c blowfish-cbc,arcfour bsgt@129.11.206.179'
+#alias cth='ssh -Y -C -c arcfour256 bsgt@129.11.206.179'
+alias pola='ssh -Y -C -c blowfish-cbc,arcfour  bsgt@polaris'
+alias 016='ssh -Y -C -c blowfish-cbc,arcfour  bsgt@fbsdpcu016'
+alias 243='ssh -Y -C -c blowfish-cbc,arcfour  bsgt@fbsdpcu243'
+alias 169='ssh -Y -C -c blowfish-cbc,arcfour  bsgt@fbsdpcu169'
+alias hell='ssh -X -C -c blowfish-cbc,arcfour bsgt@hellraiser'
+alias 015='ssh -Y -C -c blowfish-cbc,arcfour  bsgt@fbsdpcu015.leeds.ac.uk'
+alias 243='ssh -X -C -c blowfish-cbc,arcfour   bsgt@fbsdpcu243' # costas
+alias 016='ssh -X -C -c blowfish-cbc,arcfour   bsgt@fbsdpcu016' # gowdy
+alias 169='ssh -X -C -c blowfish-cbc,arcfour   bsgt@fbsdpcu169' # brionny
+alias 156='ssh -X -C -c blowfish-cbc,arcfour   bsgt@fbscpcu156'
+alias 167='ssh -X -C -c blowfish-cbc,arcfour   bsgt@fbscpcu167' # richards replacement aka sashas computer
+
+alias ds1='ssh -AY -C  bsgt@104.199.69.174'
+alias ds2='ssh -AY -C  bsgt@104.155.30.175'
+alias ds3='ssh -AY -C  bsgt@130.211.58.216'
+
+alias dev1='ssh -AX -C bsgt@dev.inmz.net'
 
 
 alias qs='/bin/ls'
 alias ll='/bin/ls -lht'
+#alias chimera='/home/bsgt/programs/Chimera-1.7/bin/chimera'
+alias chimera='/home/bsgt/programs/chimera_1.9/bin/chimera'
 alias edbash='gedit ~/.bashrc &'
 alias F5='source ~/.bashrc'
 alias LDBOX='nohup ~/.dropbox-dist/dropboxd > ~/dropbox.nohup &'
@@ -336,6 +414,25 @@ alias LDSTOP='dropbox.py stop '
 
 alias his='history'
 
+
+alias cdS='cd /mnt/store/'
+alias cdH='cd /mnt/store/Hbase/01_loc_stand_hb'
+
+
+#################################################################
+#################################################################
+#################################################################
+
+#export PATH=/home/bsgt/programs/anaconda3/bin:$PATH
+
+#export CLOUDSDK_PYTHON=/home/bsgt/programs/anaconda2/bin:
+
+
+################################################################
+# Java variables
+#export JAVA_HOME=/home/bsgt/programs/jdk1.8.0_102
+
+#export JRE_HOME=/home/bsgt/programs/jdk1.8.0_102/jre
 
 #export PATH=$PATH:/home/bsgt/programs/jdk1.8.0_102/bin:/home/bsgt/programs/jdk1.8.0_102/jre/bin
 
